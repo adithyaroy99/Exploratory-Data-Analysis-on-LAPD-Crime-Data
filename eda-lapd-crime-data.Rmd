@@ -1,0 +1,254 @@
+---
+title: "Exploratory Data Analysis on Crime Data"
+output: html_notebook
+---
+
+This analysis explores crime data from the Los Angeles Police Department (LAPD), covering incidents reported between January 1, 2020, and March 27, 2025. This data is transcribed from original crime reports that are typed on paper and therefore there may be some inaccuracies within the data. Some location fields with missing data are noted as (0°, 0°). Address fields are only provided to the nearest hundred block in order to maintain privacy. This data is as accurate as the data in the database. Despite these limitations, the data is considered as accurate as the information stored in the LAPD database. This report employs exploratory data analysis (EDA) using R to uncover patterns, trends, and insights.
+
+**About this Dataset:**
+
+Date Created: February 10, 2020
+
+Data Last Updated: March 27, 2025
+
+Data Provided by: Los Angeles Police Department
+
+Dataset Owner: LAPD OpenData
+
+Refresh rate: Bi-monthly
+
+Category: Public Safety
+
+Source Link: <http://data.lacity.org>
+
+### Install and load libraries for data manipulation, visualization, and analysis.
+
+```{r}
+## Install required packages if not already installed
+
+# Load libraries
+library(tidyverse)  # For data manipulation and visualization
+library(lubridate)  # For date/time handling
+library(skimr)      # For quick data summaries
+library(janitor)    # For cleaning column names
+library(leaflet)    # For mapping geographic data
+```
+
+### Load the Data
+
+```{r}
+##Read the CSV file into R. The dataset has columns like DR_NO, Date Rptd, DATE OCC, AREA NAME, Crm Cd Desc, etc., as described in the documentation.
+
+# Load the dataset
+crime_data <- read_csv("Crime_Data_from_2020_to_Present_20250409.csv")
+
+# Clean column names (make them consistent, remove spaces)
+crime_data <- clean_names(crime_data)
+
+head(crime_data)
+```
+
+### Initial Data Inspection
+
+Check the structure, summary, and missing values to understand the dataset’s quality and characteristics.
+
+```{r}
+# Check structure of the dataset
+str(crime_data)
+
+# Quick summary of the dataset
+summary(crime_data)
+```
+
+```{r}
+# Use skimr for a detailed overview
+skim(crime_data)
+```
+
+```{r}
+
+# Check unique values in categorical columns
+
+unique(crime_data$area_name)
+unique(crime_data$crm_cd_desc)
+unique(crime_data$vict_sex)
+unique(crime_data$vict_descent)
+```
+
+### Data Cleaning
+
+Handle missing values, incorrect data types, and anomalies based on the dataset’s characteristics.
+
+```{r}
+# Create a copy
+crime_data_copy1 <- crime_data
+```
+
+```{r}
+# Convert date columns to proper date format
+crime_data_copy1$date_rptd <- mdy_hms(crime_data_copy1$date_rptd)
+
+# Convert time_occ to a proper time format (it's in 24-hour military time as text)
+crime_data_copy1$time_occ <- sprintf("%04d", as.numeric(crime_data_copy1$time_occ))  # Pad with zeros
+crime_data_copy1$time_occ <- hm(paste0(substr(crime_data_copy1$time_occ, 1, 2), ":", substr(crime_data_copy1$time_occ, 3, 4)))
+
+# Create separate columns for month, day, year and day of the week by date reported
+crime_data_copy1 <- crime_data_copy1 %>%
+  mutate(day=day(date_rptd),
+         month=month(date_rptd, label=TRUE),
+         year=year(date_rptd),
+         day_of_week=wday(date_rptd, label=TRUE))
+
+# Extract date components
+crime_data_copy1 <- crime_data_copy1 %>%
+  mutate(hour = hour(time_occ))
+```
+
+```{r}
+# Replace (0, 0) coordinates with NA
+crime_data_copy1 <- crime_data_copy1 %>%
+  mutate(lat = na_if(lat, 0),
+         lon = na_if(lon, 0))
+
+# Handle missing or unknown values in categorical columns
+crime_data_copy1 <- crime_data_copy1 %>%
+  mutate(vict_sex = na_if(vict_sex, "X"),
+         vict_sex = na_if(vict_sex, "H"),
+         vict_sex = na_if(vict_sex, "-"),
+         vict_descent = na_if(vict_descent, "X"),
+         vict_descent = na_if(vict_descent, "-"))
+
+# Convert vict_age to numeric, handle non-numeric or negative values
+crime_data_copy1$vict_age <- as.numeric(crime_data_copy1$vict_age)
+crime_data_copy1$vict_age[crime_data_copy1$vict_age <= 0] <- NA
+
+# Check for duplicates based on DR_NO (should be unique)
+duplicates <- crime_data_copy1[duplicated(crime_data_copy1$dr_no), ]
+if (nrow(duplicates) > 0) {
+  print("Duplicates found:")
+  print(duplicates)
+} else {
+  print("No Duplicates found")
+}
+head(crime_data_copy1)
+```
+
+```{r}
+# Use skimr for a detailed overview
+skim(crime_data_copy1)
+```
+
+```{r}
+## Identify the column names with complete_rate >= 0.73
+# Calculate the skim statistics for the dataset
+skim_output <- skim(crime_data_copy1)
+
+# Get the complete_rate for each column
+# The complete_rate is stored in the 'complete_rate' column of the skim_df
+# The variable names are in the 'skim_variable' column
+complete_rates <- skim_output$complete_rate
+variable_names <- skim_output$skim_variable
+
+
+# Identify the names of columns to keep (complete_rate >= 0.73)
+columns_to_keep <- variable_names[complete_rates >= 0.73]
+crime_data_filtered <- crime_data_copy1[, columns_to_keep]
+
+# Remove unneccessary columns
+#columns_to_remove <- crime_data_filtered
+  #cdro("date_occ","mocodes","crm_cd_1")
+crime_data_final_columns <- crime_data_filtered[,!names(crime_data_filtered) %in% c("date_occ","mocodes","crm_cd_1")]
+
+crime_data_cleaned <- drop_na(crime_data_final_columns)
+head(crime_data_cleaned)
+```
+
+```{r}
+skim(crime_data_cleaned)
+```
+
+### Univariate Analysis
+
+Explore individual variables to understand their distributions.
+
+```{r}
+# Numerical variables: vict_age
+ggplot(crime_data_cleaned, aes(x = vict_age)) +
+  geom_histogram(binwidth = 5, fill = "blue", color = "black") +
+  labs(title = "Distribution of Victim Age", x = "Age", y = "Count") +
+  theme_minimal()
+
+# Crime type: crm_cd_desc
+crime_data_cleaned %>%
+  count(crm_cd_desc) %>%
+  top_n(10, n) %>%
+  ggplot(aes(x = reorder(crm_cd_desc, n), y = n)) +
+  geom_bar(stat = "identity", fill = "red") +
+  coord_flip() +
+  labs(title = "Top 10 Crime Types", x = "Crime Description", y = "Count") +
+  theme_minimal()
+
+```
+
+### Temporal Analysis
+
+Analyze crime patterns over time using date_occ and time_occ.
+
+```{r}
+# Crimes by month
+crime_data_cleaned %>%
+  count(month) %>%
+  ggplot(aes(x = month, y = n)) +
+  geom_bar(stat = "identity", fill = "purple") +
+  labs(title = "Crimes by Month", x = "Month", y = "Count") +
+  theme_minimal()
+
+
+# Crimes by day of the week
+crime_data_cleaned %>%
+  count(day_of_week) %>%
+  ggplot(aes(x = day_of_week, y = n)) +
+  geom_bar(stat = "identity", fill = "blue") +
+  labs(title = "Crimes by Day of Week", x = "Day", y = "Count") +
+  theme_minimal()
+
+```
+
+### Victim Demographics
+
+Explore vict_age, vict_sex, and vict_descent.
+
+```{r}
+# Victim sex distribution
+
+library(scales) # Load the scales package
+
+crime_data_cleaned %>%
+  count(vict_sex) %>%
+  ggplot(aes(x = vict_sex, y = n, fill = vict_sex)) +
+  geom_bar(stat = "identity") +
+  # Add this layer to control the y-axis formatting
+  scale_y_continuous(labels = label_number()) +
+  labs(title = "Victim Sex Distribution", x = "Sex", y = "Count") +
+  theme_minimal()
+
+# Victim descent
+crime_data_cleaned %>%
+  filter(!is.na(vict_descent)) %>%
+  count(vict_descent) %>%
+  ggplot(aes(x = reorder(vict_descent, n), y = n)) +
+  geom_bar(stat = "identity", fill = "darkgreen") +
+  # Add this layer to control the y-axis formatting
+  scale_y_continuous(labels = label_number()) +
+  coord_flip() +
+  labs(title = "Victim Descent Distribution", x = "Descent", y = "Count") +
+  theme_minimal()
+```
+
+### Conclusion
+
+-   Crime patterns vary by time, location, and demographics
+
+-   Theft and assault are prevalent crime types
+
+-   Data limitations require careful handling
