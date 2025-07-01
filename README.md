@@ -13,6 +13,7 @@ The primary goal of this EDA was to gain insights into crime patterns, trends, a
 
 ## Repository Contents
 eda-lapd-crime-data.Rmd: This R Markdown notebook contains the complete code for the Exploratory Data Analysis. 
+
 README.md: This file, providing an overview of the project and its resources.
 > Note: For the fully rendered notebook with all visualizations and outputs, please refer to the Kaggle Notebook link above.
 
